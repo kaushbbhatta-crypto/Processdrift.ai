@@ -1,0 +1,73 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>ProcessDrift AI Prototype</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:1100px;margin:30px auto;padding:0 20px;background:#f6f7f9;color:#202124}
+.card{background:white;border:1px solid #ddd;border-radius:10px;padding:18px;margin:14px 0}
+h1{margin-bottom:4px}.muted{color:#666}.row{display:flex;gap:12px;flex-wrap:wrap}
+textarea{width:100%;height:170px;font-family:monospace;padding:10px;box-sizing:border-box}
+button{padding:10px 18px;border:0;border-radius:6px;cursor:pointer}
+table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}
+.badge{display:inline-block;padding:5px 9px;border-radius:12px;background:#eee}.alert{padding:12px;background:#fff3cd;border-radius:8px}
+.good{padding:12px;background:#e8f5e9;border-radius:8px}
+</style></head>
+<body>
+<h1>ProcessDrift AI</h1><div class="muted">Functional prototype: SOP vs. actual workflow drift analysis</div>
+<div class="card">
+<h2>1. Enter process data</h2>
+<p>CSV format: <b>case_id,step,sequence</b>. The prototype compares each case against the SOP order.</p>
+<textarea id="input">case_id,step,sequence
+C001,Customer Complaint,1
+C001,Manager Approval,2
+C001,Refund,3
+C002,Customer Complaint,1
+C002,Senior Employee Check,2
+C002,Refund,3
+C003,Customer Complaint,1
+C003,Manager Approval,2
+C003,Refund,3</textarea>
+<button onclick="analyze()">Analyze Process Drift</button>
+</div>
+<div id="output"></div>
+<script>
+const SOP=["Customer Complaint","Manager Approval","Refund"];
+function parseCSV(s){
+ let lines=s.trim().split(/\r?\n/).slice(1), cases={};
+ lines.forEach(x=>{let p=x.split(","); if(p.length>=3){let id=p[0].trim(),step=p[1].trim(),seq=+p[2];(cases[id]??=[]).push({step,seq})}});
+ return cases;
+}
+function analyze(){
+ let cases=parseCSV(document.getElementById("input").value);
+ let rows=[], deviations=0, total=0, types={};
+ for(let id in cases){
+   let arr=cases[id].sort((a,b)=>a.seq-b.seq).map(x=>x.step);
+   total++;
+   let expected=JSON.stringify(arr)===JSON.stringify(SOP);
+   let missing=SOP.filter(x=>!arr.includes(x)), unexpected=arr.filter(x=>!SOP.includes(x));
+   let counts={}; arr.forEach(x=>counts[x]=(counts[x]||0)+1);
+   let repeated=Object.keys(counts).filter(x=>counts[x]>1);
+   let orderIssue=false;
+   SOP.forEach((x,i)=>{let ix=arr.indexOf(x); if(ix>=0 && i>0){let prev=arr.indexOf(SOP[i-1]); if(prev>=0&&ix<prev)orderIssue=true}});
+   let dev=!expected || repeated.length>0;
+   if(dev) deviations++;
+   let label=expected?"Conforming":"Drift detected";
+   if(unexpected.length){types["Unexpected step"]=(types["Unexpected step"]||0)+1}
+   if(missing.length){types["Skipped step"]=(types["Skipped step"]||0)+1}
+   if(orderIssue){types["Wrong order"]=(types["Wrong order"]||0)+1}
+   if(repeated.length){types["Repeated step"]=(types["Repeated step"]||0)+1}
+   rows.push({id,arr,label,missing,unexpected,orderIssue,repeated});
+ }
+ let rate=((total-deviations)/total*100).toFixed(1);
+ let rec=deviations===0?"No recurring drift detected. Continue monitoring.":(deviations/total>=0.5?
+ "Actual workflow differs frequently from the SOP. Review whether the SOP is outdated or whether the deviation needs correction. Human process owner approval is required."
+ :"A limited deviation pattern was detected. Investigate the cause before changing the SOP.");
+ document.getElementById("output").innerHTML=`<div class="card"><h2>2. Prototype result</h2>
+ <div class="${deviations?'alert':'good'}"><b>Conformance rate:</b> ${rate}% &nbsp; <b>Drifted cases:</b> ${deviations}/${total}</div>
+ <h3>Case-level findings</h3><table><tr><th>Case</th><th>Observed path</th><th>Status</th><th>Evidence</th></tr>
+ ${rows.map(r=>`<tr><td>${r.id}</td><td>${r.arr.join(" → ")}</td><td><span class="badge">${r.label}</span></td><td>${[r.unexpected.length?"Unexpected: "+r.unexpected.join(", "):"",r.missing.length?"Skipped: "+r.missing.join(", "):"",r.orderIssue?"Order differs":"",r.repeated?.length?"Repeated: "+r.repeated.join(", "):""].filter(Boolean).join("<br>")||"Matches SOP"}</td></tr>`).join("")}</table>
+ <h3>Pattern summary</h3><p>${Object.entries(types).map(([k,v])=>k+": "+v+" case(s)").join(" | ")||"No deviations"}</p>
+ <h3>AI-assisted recommendation</h3><p>${rec}</p>
+ <p class="muted"><b>Human review:</b> The system recommends; the process owner decides whether to modify the SOP or correct the actual workflow.</p>
+ </div>`;
+}
+analyze();
+</script></body></html>
